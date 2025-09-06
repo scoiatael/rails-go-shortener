@@ -15,40 +15,72 @@
         inputs.process-compose-flake.flakeModule
         inputs.just-flake.flakeModule
       ];
-      perSystem = { self', pkgs, config, lib, ... }: {
-        process-compose."dev" = { config, ... }:
-          let
-            dbName = "shortener";
-            socketDir = "/tmp/rails-go-shortener/";
-          in {
-            imports = [ inputs.services-flake.processComposeModules.default ];
+      perSystem = let
+        dbName = "rails_go_shortener_development";
+        socketDir = "/tmp/rails-go-shortener/";
+      in { self', pkgs, config, lib, ... }: {
+        process-compose."dev" = { config, ... }: {
+          imports = [ inputs.services-flake.processComposeModules.default ];
 
-            services.postgres."pg" = {
-              enable = true;
-              inherit socketDir;
-            };
+          cli = {
+            # Global options for `process-compose`
+            options = { no-server = true; };
+          };
 
-            services.redis."redis".enable = true;
-            services.nats-server."nats".enable = true;
+          services.postgres."pg" = {
+            enable = true;
+            inherit socketDir;
+          };
 
-            settings.processes.pgweb = let pgcfg = config.services.postgres.pg1;
-            in {
-              environment.PGWEB_DATABASE_URL =
-                pgcfg.connectionURI { inherit dbName; };
-              command = pkgs.pgweb;
-              depends_on."pg1".condition = "process_healthy";
-            };
-            settings.processes.test = {
+          services.redis."redis".enable = true;
+          services.nats-server."nats".enable = true;
+          services.nats-server."nats".settings.host =
+            "127.0.0.1"; # In dev, listen only on localhost
+
+          settings.processes = {
+            pgtest = {
               command = pkgs.writeShellApplication {
-                name = "pg1-test";
-                runtimeInputs = [ config.services.postgres.pg1.package ];
+                name = "pg-test";
+                runtimeInputs = [ config.services.postgres.pg.package ];
                 text = ''
                   echo 'SELECT version();' | psql -h 127.0.0.1 ${dbName}
                 '';
               };
-              depends_on."pg1".condition = "process_healthy";
+              depends_on."pg".condition = "process_healthy";
+              depends_on."setup".condition = "process_completed_successfully";
             };
-          };
+
+            pgweb = let pgcfg = config.services.postgres.pg;
+            in {
+              environment.PGWEB_DATABASE_URL =
+                pgcfg.connectionURI { inherit dbName; };
+              command = "${lib.getExe pkgs.pgweb} --skip-open";
+              depends_on."pg".condition = "process_healthy";
+              depends_on."setup".condition = "process_completed_successfully";
+            };
+
+            setup = {
+              command = ''
+                bin/setup
+              '';
+              depends_on.pg.condition = "process_healthy";
+              availability.restart = "on_failure";
+            };
+          } // (lib.lists.foldl' (acc:
+            { name, process }:
+            acc // (let
+            in {
+              "${name}" = {
+                depends_on = {
+                  setup = { condition = "process_completed_successfully"; };
+                };
+                availability.restart = "on_failure";
+              } // process;
+            })) { } [{
+              name = "rails-server";
+              process = { command = "bin/rails server"; };
+            }]);
+        };
 
         devShells.default =
           let pgcfg = config.process-compose.dev.services.postgres.pg;
@@ -70,9 +102,7 @@
               pgcfg.package
               pkgs.natscli
             ];
-            # DATABASE_URL = pgcfg.connectionURI {
-            #   dbName = "wooting_v2_w60he_pre_order_game_development";
-            # };
+            DATABASE_HOST = socketDir;
           };
       };
     };
