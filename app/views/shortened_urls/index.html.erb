@@ -1,0 +1,16 @@
+<p style="color: green"><%= notice %></p>
+
+<% content_for :title, "Shortened urls" %>
+
+<h1>Shortened urls</h1>
+
+<div id="shortened_urls">
+  <% @shortened_urls.each do |shortened_url| %>
+    <%= render shortened_url %>
+    <p>
+      <%= link_to "Show this shortened url", shortened_url %>
+    </p>
+  <% end %>
+</div>
+
+<%= link_to "New shortened url", new_shortened_url_path %>

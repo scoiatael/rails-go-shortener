@@ -1,0 +1,10 @@
+<p style="color: green"><%= notice %></p>
+
+<%= render @shortened_url %>
+
+<div>
+  <%= link_to "Edit this shortened url", edit_shortened_url_path(@shortened_url) %> |
+  <%= link_to "Back to shortened urls", shortened_urls_path %>
+
+  <%= button_to "Destroy this shortened url", @shortened_url, method: :delete %>
+</div>
