@@ -33,9 +33,12 @@
           };
 
           services.redis."redis".enable = true;
+
           services.nats-server."nats".enable = true;
-          services.nats-server."nats".settings.host =
-            "127.0.0.1"; # In dev, listen only on localhost
+          services.nats-server."nats".settings = {
+            jetstream.enabled = true;
+            host = "127.0.0.1"; # In dev, listen only on localhost
+          };
 
           settings.processes = {
             pgtest = {
@@ -64,6 +67,7 @@
                 bin/setup
               '';
               depends_on.pg.condition = "process_healthy";
+              depends_on.nats.condition = "process_healthy";
               availability.restart = "on_failure";
             };
           } // (lib.lists.foldl' (acc:
@@ -103,6 +107,7 @@
               pkgs.natscli
             ];
             DATABASE_HOST = socketDir;
+            NATS_URL = "nats://127.0.0.1:4222";
           };
       };
     };
