@@ -24,7 +24,7 @@ class ShortenedUrlsController < ApplicationController
     @shortened_url = ShortenUrlService.new.create(shortened_url_params)
 
     respond_to do |format|
-      if @shortened_url.saved
+      if @shortened_url.saved?
         format.html { redirect_to @shortened_url.model, notice: "Shortened url was successfully created." }
         format.json { render :show, status: :created, location: @shortened_url.model }
       else
