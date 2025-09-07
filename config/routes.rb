@@ -1,4 +1,6 @@
 Rails.application.routes.draw do
+  get "unfurls/show/:slug", controller: "unfurls", action: "show"
+  get "unfurls/search/:slug", controller: "unfurls", action: "search"
   resources :shortened_urls
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
