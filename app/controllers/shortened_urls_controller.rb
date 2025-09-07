@@ -21,12 +21,12 @@ class ShortenedUrlsController < ApplicationController
 
   # POST /shortened_urls or /shortened_urls.json
   def create
-    @shortened_url = ShortenedUrl.new(shortened_url_params)
+    @shortened_url = ShortenUrlService.new.create(shortened_url_params)
 
     respond_to do |format|
-      if @shortened_url.save
-        format.html { redirect_to @shortened_url, notice: "Shortened url was successfully created." }
-        format.json { render :show, status: :created, location: @shortened_url }
+      if @shortened_url.saved
+        format.html { redirect_to @shortened_url.model, notice: "Shortened url was successfully created." }
+        format.json { render :show, status: :created, location: @shortened_url.model }
       else
         format.html { render :new, status: :unprocessable_entity }
         format.json { render json: @shortened_url.errors, status: :unprocessable_entity }
@@ -58,13 +58,14 @@ class ShortenedUrlsController < ApplicationController
   end
 
   private
-    # Use callbacks to share common setup or constraints between actions.
-    def set_shortened_url
-      @shortened_url = ShortenedUrl.find(params[:id])
-    end
 
-    # Only allow a list of trusted parameters through.
-    def shortened_url_params
-      params.require(:shortened_url).permit(:target, :slug)
-    end
+  # Use callbacks to share common setup or constraints between actions.
+  def set_shortened_url
+    @shortened_url = ShortenedUrl.find(params[:id])
+  end
+
+  # Only allow a list of trusted parameters through.
+  def shortened_url_params
+    params.require(:shortened_url).permit(:target, :slug)
+  end
 end
