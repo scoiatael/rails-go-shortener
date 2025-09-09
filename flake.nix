@@ -80,10 +80,20 @@
                 };
                 availability.restart = "on_failure";
               } // process;
-            })) { } [{
-              name = "rails-server";
-              process = { command = "bin/rails server"; };
-            }]);
+            })) { } [
+              {
+                name = "rails-server";
+                process = { command = "bin/rails server"; };
+              }
+              {
+                name = "go-server";
+                process = {
+                  command = "${
+                      lib.getExe pkgs.watchexec
+                    } -r -e go -- go run app/go/main.go";
+                };
+              }
+            ]);
         };
 
         devShells.default =

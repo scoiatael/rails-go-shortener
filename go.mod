@@ -2,7 +2,10 @@ module github.com/scoiatael/rails-go-shortener
 
 go 1.24.6
 
-require github.com/nats-io/nats.go v1.45.0
+require (
+	github.com/allegro/bigcache/v3 v3.1.0
+	github.com/nats-io/nats.go v1.45.0
+)
 
 require (
 	github.com/klauspost/compress v1.18.0 // indirect
