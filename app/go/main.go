@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cockroachdb/pebble"
+	badger "github.com/dgraph-io/badger/v4"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -22,7 +22,7 @@ type Link struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func CreateJetstream(name string) (*jetstream.Consumer, error) {
+func CreateJetstream() (*jetstream.Consumer, error) {
 	// connect to nats server
 	nc, err := nats.Connect(nats.DefaultURL)
 	if err != nil {
@@ -46,7 +46,6 @@ func CreateJetstream(name string) (*jetstream.Consumer, error) {
 
 	// create consumer
 	cons, err := stream.CreateConsumer(ctx, jetstream.ConsumerConfig{
-		Durable:   name,
 		AckPolicy: jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
@@ -55,20 +54,18 @@ func CreateJetstream(name string) (*jetstream.Consumer, error) {
 	return &cons, nil
 }
 
-func CreateCache(dbPath string) (*pebble.DB, error) {
-	return pebble.Open(dbPath, &pebble.Options{})
+func CreateCache() (*badger.DB, error) {
+	opt := badger.DefaultOptions("").WithInMemory(true)
+	return badger.Open(opt)
 }
 
 func main() {
-	dbName := "data/demo.rocks"
-	consumerName := "demo-rocks"
-
-	cons, err := CreateJetstream(consumerName)
+	cons, err := CreateJetstream()
 	if err != nil {
 		panic(err)
 	}
 
-	db, err := CreateCache(dbName)
+	db, err := CreateCache()
 	if err != nil {
 		panic(err)
 	}
@@ -85,33 +82,40 @@ func main() {
 
 		fmt.Printf("Received link: %+v\n", link)
 
-		if err := db.Set([]byte(link.Slug), []byte(link.Target), pebble.Sync); err != nil {
+		err = db.Update(func(txn *badger.Txn) error {
+			return txn.Set([]byte(link.Slug), []byte(link.Target))
+		})
+		if err != nil {
 			fmt.Printf("Error saving message (%+v): %v\n", link, err)
 			msg.Nak()
-			return
+		} else {
+			msg.Ack()
 		}
-		msg.Ack()
 	})
 	if err != nil {
 		panic(err)
 	}
 	defer cc.Stop()
 
-	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		value, closer, err := db.Get([]byte(r.URL.Path))
-		if err == pebble.ErrNotFound {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		err := db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get([]byte(r.URL.Path))
+			if err != nil {
+				return err
+			}
+			return item.Value(func(value []byte) error {
+				http.Redirect(w, r, string(value), http.StatusMovedPermanently)
+				return nil
+			})
+		})
+		if err == badger.ErrKeyNotFound {
 			http.NotFound(w, r)
 		} else if err != nil {
-			log.Fatal(err)
-		} else {
-			http.Redirect(w, r, string(value), http.StatusMovedPermanently)
-
-			if err := closer.Close(); err != nil {
-				log.Fatal(err)
-			}
+			http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 		}
 	})
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe("127.0.0.1:3001", mux))
 
 }
