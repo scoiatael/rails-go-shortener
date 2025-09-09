@@ -105,6 +105,8 @@
 
               pgcfg.package
               pkgs.natscli
+
+              pkgs.gopls
             ];
             DATABASE_HOST = socketDir;
             NATS_URL = "nats://127.0.0.1:4222";
