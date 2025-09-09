@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	bigcache "github.com/allegro/bigcache/v3"
+	"github.com/cockroachdb/pebble"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -22,17 +22,17 @@ type Link struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func main() {
+func CreateJetstream(name string) (*jetstream.Consumer, error) {
 	// connect to nats server
 	nc, err := nats.Connect(nats.DefaultURL)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	// create jetstream context from nats connection
 	js, err := jetstream.New(nc)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -41,23 +41,40 @@ func main() {
 	// get existing stream handle
 	stream, err := js.Stream(ctx, "ShortenedUrl_create")
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	// create consumer
 	cons, err := stream.CreateConsumer(ctx, jetstream.ConsumerConfig{
+		Durable:   name,
 		AckPolicy: jetstream.AckExplicitPolicy,
 	})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
+	return &cons, nil
+}
 
-	cache, err := bigcache.New(context.Background(), bigcache.DefaultConfig(10*time.Minute))
+func CreateCache(dbPath string) (*pebble.DB, error) {
+	return pebble.Open(dbPath, &pebble.Options{})
+}
+
+func main() {
+	dbName := "data/demo.rocks"
+	consumerName := "demo-rocks"
+
+	cons, err := CreateJetstream(consumerName)
 	if err != nil {
 		panic(err)
 	}
 
-	cc, err := cons.Consume(func(msg jetstream.Msg) {
+	db, err := CreateCache(dbName)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	cc, err := (*cons).Consume(func(msg jetstream.Msg) {
 		var link Link
 		err := json.Unmarshal(msg.Data(), &link)
 		if err != nil {
@@ -68,7 +85,11 @@ func main() {
 
 		fmt.Printf("Received link: %+v\n", link)
 
-		cache.Set(link.Slug, []byte(link.Target))
+		if err := db.Set([]byte(link.Slug), []byte(link.Target), pebble.Sync); err != nil {
+			fmt.Printf("Error saving message (%+v): %v\n", link, err)
+			msg.Nak()
+			return
+		}
 		msg.Ack()
 	})
 	if err != nil {
@@ -77,17 +98,17 @@ func main() {
 	defer cc.Stop()
 
 	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		entry, err := cache.Get(r.URL.Path)
-		if err == bigcache.ErrEntryNotFound {
+		value, closer, err := db.Get([]byte(r.URL.Path))
+		if err == pebble.ErrNotFound {
 			http.NotFound(w, r)
 		} else if err != nil {
-			panic(err)
+			log.Fatal(err)
 		} else {
-			// The HTTP 301 Moved Permanently redirection response status code indicates that the requested resource has been permanently moved to the URL in the Location header.
+			http.Redirect(w, r, string(value), http.StatusMovedPermanently)
 
-			// A browser receiving this status will automatically request the resource at the URL in the Location header, redirecting the user to the new page.
-			// Search engines receiving this response will attribute links to the original URL to the redirected resource, passing the SEO ranking to the new URL.
-			http.Redirect(w, r, string(entry), http.StatusMovedPermanently)
+			if err := closer.Close(); err != nil {
+				log.Fatal(err)
+			}
 		}
 	})
 
